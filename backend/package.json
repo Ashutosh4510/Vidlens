@@ -9,6 +9,9 @@
     "test": "node --test src/tests/deduplication.test.js src/tests/scoring.test.js",
     "seed:demo": "node scripts/seedRecorded.js"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "keywords": ["video-discovery", "instagram", "meta-ads", "apify"],
   "author": "",
   "license": "ISC",
