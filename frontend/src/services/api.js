@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:3001/api';
+// Dev: Vite on :5173 talks to the backend on :3001. Production: the backend serves the UI, so same origin.
+const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
 
 export async function startSearch(query) {
   const response = await fetch(`${API_BASE}/search`, {

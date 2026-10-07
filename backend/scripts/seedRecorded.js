@@ -17,7 +17,8 @@ function recordedLabel(recordedAt) {
   return `(recorded ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })})`;
 }
 
-function main() {
+function seedRecorded({ quiet = false } = {}) {
+  const log = quiet ? () => {} : console.log;
   const recorded = JSON.parse(fs.readFileSync(RECORDED_FILE, 'utf-8'));
   const conn = getDb();
   let loaded = 0;
@@ -25,7 +26,7 @@ function main() {
   for (const rec of recorded) {
     const query = `${rec.query} ${recordedLabel(rec.recordedAt)}`;
     if (conn.prepare('SELECT 1 FROM searches WHERE query = ?').get(query)) {
-      console.log(`skip (already loaded): ${query}`);
+      log(`skip (already loaded): ${query}`);
       continue;
     }
 
@@ -52,10 +53,15 @@ function main() {
     });
 
     loaded++;
-    console.log(`loaded: ${query} (${rec.videos.length} videos)`);
+    log(`loaded: ${query} (${rec.videos.length} videos)`);
   }
 
-  console.log(`Done. ${loaded} recorded search(es) added.`);
+  log(`Done. ${loaded} recorded search(es) added.`);
+  return loaded;
 }
 
-main();
+if (require.main === module) {
+  seedRecorded();
+}
+
+module.exports = { seedRecorded };

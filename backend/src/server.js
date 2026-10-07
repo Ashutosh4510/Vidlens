@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const config = require('./config');
@@ -39,11 +41,32 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// Serve the built frontend (production / Docker / Render); dev uses the Vite server instead
+const FRONTEND_DIST = path.join(__dirname, '..', '..', 'frontend', 'dist');
+if (fs.existsSync(path.join(FRONTEND_DIST, 'index.html'))) {
+  app.use(express.static(FRONTEND_DIST));
+  app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(FRONTEND_DIST, 'index.html')));
+}
+
 // Error handler
 app.use((err, req, res, next) => {
   logger.error('Unhandled error', { error: err.message, stack: err.stack });
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// Hosts with ephemeral disks start with an empty DB; load the recorded demo searches so the
+// dashboard has data to explore (disable with SEED_DEMO=false).
+if (process.env.SEED_DEMO !== 'false') {
+  try {
+    const { getDb } = require('./db/schema');
+    if (!getDb().prepare('SELECT 1 FROM searches LIMIT 1').get()) {
+      const loaded = require('../scripts/seedRecorded').seedRecorded({ quiet: true });
+      logger.info('Loaded recorded demo searches into empty database', { loaded });
+    }
+  } catch (error) {
+    logger.warn('Could not load recorded demo searches', { error: error.message });
+  }
+}
 
 // Start server
 app.listen(config.port, () => {

@@ -1,0 +1,21 @@
+# Render Blueprint: one web service that builds the React UI and serves it from the Express API.
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo, then fill in the two API keys.
+services:
+  - type: web
+    name: vidlens
+    runtime: node
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build && cd ../backend && npm install --omit=dev
+    startCommand: cd backend && node src/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: APIFY_API_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ENABLE_TIKTOK
+        value: "false"

@@ -123,6 +123,19 @@ Open **`http://localhost:5173`** in your browser.
 
 ---
 
+## ☁️ Deploy to Render (free)
+
+The repo includes a [`render.yaml`](render.yaml) Blueprint: one web service that builds the React UI and serves it from the Express API.
+
+1. Sign in at [render.com](https://render.com) with GitHub.
+2. **New → Blueprint**, pick this repository, click **Apply**.
+3. When asked, paste `APIFY_API_TOKEN` and `GEMINI_API_KEY`.
+4. Wait for the build (~3–5 min); the app is served at `https://vidlens-xxxx.onrender.com`.
+
+Keys can be changed later under the service's **Environment** tab (save → the service restarts). The free plan has no persistent disk, so the SQLite database resets on restart; the recorded demo searches are loaded automatically on an empty database (set `SEED_DEMO=false` to disable). Free services sleep after inactivity, so the first request can take ~1 minute.
+
+---
+
 ## 🐳 Docker Deployment (One-Command Run)
 
 Run the full stack containerized with Docker Compose:
