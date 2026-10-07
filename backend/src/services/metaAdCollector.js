@@ -2,6 +2,7 @@ const { ApifyClient } = require('apify-client');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { brandedProduct } = require('../utils/queryText');
+const { hashVideoUrl } = require('../db/queries');
 
 let client = null;
 if (config.apifyToken && config.apifyToken !== 'your_apify_api_token_here') {
@@ -10,6 +11,8 @@ if (config.apifyToken && config.apifyToken !== 'your_apify_api_token_here') {
 
 const MAX_QUERIES_PER_RUN = 4;
 const RESULTS_PER_QUERY = 15;
+// Deep pass when earlier searches already returned most of the first page
+const DEEP_RESULTS_PER_QUERY = 40;
 
 /**
  * Collect Meta Ad Library video ads using Apify's Facebook Ads scraper.
@@ -30,7 +33,10 @@ async function collectMetaAds(productAnalysis, existingHashes = new Set(), minRe
     return allVideos;
   }
 
-  const runQueries = async (queries, exactPhrase) => {
+  // Only videos the user has not seen in earlier searches count toward the minimum
+  const freshCount = () => allVideos.filter((v) => !existingHashes.has(hashVideoUrl(v.videoUrl))).length;
+
+  const runQueries = async (queries, exactPhrase, perQuery = RESULTS_PER_QUERY) => {
     if (queries.length === 0) return;
 
     try {
@@ -39,7 +45,7 @@ async function collectMetaAds(productAnalysis, existingHashes = new Set(), minRe
       const run = await client.actor('apify/facebook-ads-scraper').call(
         {
           startUrls: queries.map((q) => ({ url: buildAdLibraryUrl(q, exactPhrase) })),
-          resultsLimit: RESULTS_PER_QUERY,
+          resultsLimit: perQuery,
         },
         {
           timeout: config.apifyTimeoutSecs,
@@ -77,19 +83,24 @@ async function collectMetaAds(productAnalysis, existingHashes = new Set(), minRe
   const primary = buildMetaQueries(productAnalysis);
   await runQueries(primary, true);
 
-  // Shortfall: broaden to generic category keywords. Any remaining deficit is
-  // reported to the UI by the pipeline rather than padded with placeholder data.
-  if (allVideos.length < minResults) {
+  // Shortfall (after discounting already-seen ads): broaden to category-level keywords,
+  // then go deeper into the primary searches. Any remaining deficit is reported to the UI.
+  if (freshCount() < minResults) {
     const broad = buildBroadQueries(productAnalysis).filter((q) => !primary.includes(q));
     logger.info('Meta Ad collector: shortfall, broadening queries', {
-      current: allVideos.length,
+      fresh: freshCount(),
       target: minResults,
       broad,
     });
     await runQueries(broad, false);
   }
 
-  logger.info('Meta Ad collector: finished', { totalVideos: allVideos.length });
+  if (freshCount() < minResults) {
+    logger.info('Meta Ad collector: still short, paging deeper', { fresh: freshCount(), target: minResults });
+    await runQueries(primary, true, DEEP_RESULTS_PER_QUERY);
+  }
+
+  logger.info('Meta Ad collector: finished', { totalVideos: allVideos.length, fresh: freshCount() });
   return allVideos;
 }
 

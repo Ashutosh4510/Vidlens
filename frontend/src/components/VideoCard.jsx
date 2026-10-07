@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ExternalLink, Play, Bookmark, Sparkles } from 'lucide-react';
+import { ExternalLink, Play, Bookmark, Sparkles, History } from 'lucide-react';
 
 // Masonry rhythm: cards cycle through these media shapes so columns interlock.
 const MEDIA_RATIOS = ['4 / 5', '1 / 1', '3 / 4', '4 / 5', '5 / 6', '3 / 4'];
@@ -27,6 +27,7 @@ export default function VideoCard({ video, index = 0, isShortlisted, onToggleSho
   const isAiReason = rawReason.startsWith('AI:');
   const reason = isAiReason ? rawReason.slice(3).trim() : rawReason;
   const scoreTier = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
+  const seenBefore = Boolean(video.is_previously_seen || video.isPreviouslySeen);
 
   // 3D tilt + glare that follows the pointer
   const handlePointerMove = (e) => {
@@ -51,7 +52,7 @@ export default function VideoCard({ video, index = 0, isShortlisted, onToggleSho
   return (
     <article
       ref={cardRef}
-      className={`vcard vcard--${platform} ${isBelowThreshold ? 'vcard--low' : ''}`}
+      className={`vcard vcard--${platform} ${isBelowThreshold ? 'vcard--low' : ''} ${seenBefore ? 'vcard--seen' : ''}`}
       style={{
         animationDelay: `${Math.min(index, 16) * 55}ms`,
         '--kb-delay': `${-(index % 7) * 2.1}s`,
@@ -62,7 +63,14 @@ export default function VideoCard({ video, index = 0, isShortlisted, onToggleSho
       <span className="vcard__glare" aria-hidden="true" />
 
       <header className="vcard__top">
-        <span className="vcard__pill">{PLATFORM[platform].label}</span>
+        <span className="vcard__pills">
+          <span className="vcard__pill">{PLATFORM[platform].label}</span>
+          {seenBefore && (
+            <span className="vcard__seen" title="Returned by an earlier search">
+              <History size={11} /> Seen before
+            </span>
+          )}
+        </span>
         <span className={`vcard__score vcard__score--${scoreTier}`} title={`Match score ${score}/100`}>
           <span>{isBelowThreshold ? 'LOW' : 'MATCH'}</span>
           <strong>{score}</strong>

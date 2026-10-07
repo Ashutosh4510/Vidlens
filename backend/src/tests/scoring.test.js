@@ -1,56 +1,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 
-// We test the caption scoring logic directly (doesn't need API keys)
-// Import scoring helpers by requiring the imageBrain module
-const path = require('path');
-
-// Inline test versions of the scoring functions (same logic as imageBrain.js)
-function scoreCaptionRelevance(caption, analysis) {
-  if (!caption) return { score: 20, reason: 'No caption available' };
-
-  const captionLower = caption.toLowerCase();
-  const attrs = analysis.attributes || {};
-  let matches = 0;
-  let total = 0;
-  const matched = [];
-
-  if (attrs.productType) {
-    total++;
-    if (captionLower.includes(attrs.productType.toLowerCase())) {
-      matches++;
-      matched.push('product type');
-    }
-  }
-
-  for (const color of (attrs.colors || [])) {
-    total++;
-    if (captionLower.includes(color.toLowerCase())) {
-      matches++;
-      matched.push(color);
-    }
-  }
-
-  if (attrs.brand) {
-    total++;
-    if (captionLower.includes(attrs.brand.toLowerCase())) {
-      matches += 2;
-      total++;
-      matched.push(`brand: ${attrs.brand}`);
-    }
-  }
-
-  for (const feature of (attrs.keyFeatures || []).slice(0, 5)) {
-    total++;
-    if (captionLower.includes(feature.toLowerCase())) {
-      matches++;
-      matched.push(feature);
-    }
-  }
-
-  const score = total > 0 ? Math.round((matches / total) * 100) : 20;
-  return { score: Math.min(100, score), reason: matched.length > 0 ? `Caption matches: ${matched.join(', ')}` : 'No attribute matches in caption' };
-}
+// Tests run against the real scoring helpers exported by the image brain
+const { scoreCaptionRelevance, scoreVideoHeuristic } = require('../services/imageBrain');
+const { brandedProduct } = require('../utils/queryText');
+const { parseImageDataUrl } = require('../utils/imageUpload');
 
 describe('Scoring Logic', () => {
   const mockAnalysis = {
@@ -109,5 +63,41 @@ describe('Scoring Logic', () => {
       mockAnalysis
     );
     assert.ok(result.score > 70, `Score should be > 70, got ${result.score}`);
+  });
+});
+
+describe('Heuristic fallback score', () => {
+  const analysis = {
+    attributes: { productType: 'graphic tee', colors: ['black'], brand: '', keyFeatures: [] },
+    searchQueries: ['black graphic tee'],
+  };
+
+  it('ranks an on-topic caption above an unrelated one', () => {
+    const onTopic = scoreVideoHeuristic({ caption: 'My new black graphic tee fit check' }, analysis);
+    const offTopic = scoreVideoHeuristic({ caption: 'Sunset at the beach with friends' }, analysis);
+    assert.ok(onTopic.score > offTopic.score);
+    assert.ok(onTopic.score >= 0 && onTopic.score <= 100);
+  });
+
+  it('labels fallback reasons so the UI can tell them apart from AI verdicts', () => {
+    const result = scoreVideoHeuristic({ caption: 'black graphic tee' }, analysis);
+    assert.ok(result.reason.startsWith('Keyword match'));
+  });
+});
+
+describe('Query building helpers', () => {
+  it('does not repeat a brand already in the product type', () => {
+    assert.strictEqual(brandedProduct('Nike', 'nike shoes'), 'nike shoes');
+    assert.strictEqual(brandedProduct('Nike', 'running shoes'), 'Nike running shoes');
+    assert.strictEqual(brandedProduct('', 'running shoes'), 'running shoes');
+  });
+});
+
+describe('Uploaded image validation', () => {
+  it('accepts image data URLs and rejects everything else', () => {
+    assert.ok(parseImageDataUrl('data:image/png;base64,iVBORw0KGgo='));
+    assert.strictEqual(parseImageDataUrl('data:text/html;base64,PGh0bWw+'), null);
+    assert.strictEqual(parseImageDataUrl('https://example.com/a.png'), null);
+    assert.strictEqual(parseImageDataUrl(42), null);
   });
 });

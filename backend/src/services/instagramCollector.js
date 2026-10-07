@@ -2,6 +2,7 @@ const { ApifyClient } = require('apify-client');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { brandedProduct } = require('../utils/queryText');
+const { hashVideoUrl } = require('../db/queries');
 
 let client = null;
 if (config.apifyToken && config.apifyToken !== 'your_apify_api_token_here') {
@@ -12,6 +13,8 @@ if (config.apifyToken && config.apifyToken !== 'your_apify_api_token_here') {
 // (48 per platform) without paying for results that are never scored.
 const MAX_HASHTAGS_PER_RUN = 6;
 const RESULTS_PER_HASHTAG = 10;
+// Deep pass when earlier searches already returned most of the first page
+const DEEP_RESULTS_PER_HASHTAG = 30;
 
 /**
  * Collect Instagram Reels using Apify's Instagram Hashtag scraper (resultsType: reels).
@@ -33,7 +36,10 @@ async function collectInstagramReels(productAnalysis, existingHashes = new Set()
     return allVideos;
   }
 
-  const runHashtags = async (hashtags) => {
+  // Only videos the user has not seen in earlier searches count toward the minimum
+  const freshCount = () => allVideos.filter((v) => !existingHashes.has(hashVideoUrl(v.videoUrl))).length;
+
+  const runHashtags = async (hashtags, perHashtag = RESULTS_PER_HASHTAG) => {
     if (hashtags.length === 0) return;
 
     try {
@@ -43,7 +49,7 @@ async function collectInstagramReels(productAnalysis, existingHashes = new Set()
         {
           hashtags,
           resultsType: 'reels',
-          resultsLimit: RESULTS_PER_HASHTAG,
+          resultsLimit: perHashtag,
         },
         {
           timeout: config.apifyTimeoutSecs,
@@ -79,19 +85,24 @@ async function collectInstagramReels(productAnalysis, existingHashes = new Set()
   const primary = buildInstagramHashtags(productAnalysis);
   await runHashtags(primary);
 
-  // Shortfall: broaden to generic category hashtags. Any remaining deficit is
-  // reported to the UI by the pipeline rather than padded with placeholder data.
-  if (allVideos.length < minResults) {
+  // Shortfall (after discounting already-seen videos): broaden to category-level hashtags,
+  // then go deeper into the primary hashtags. Any remaining deficit is reported to the UI.
+  if (freshCount() < minResults) {
     const broad = buildBroadHashtags(productAnalysis).filter((h) => !primary.includes(h));
     logger.info('Instagram collector: shortfall, broadening hashtags', {
-      current: allVideos.length,
+      fresh: freshCount(),
       target: minResults,
       broad,
     });
     await runHashtags(broad);
   }
 
-  logger.info('Instagram collector: finished', { totalVideos: allVideos.length });
+  if (freshCount() < minResults) {
+    logger.info('Instagram collector: still short, paging deeper', { fresh: freshCount(), target: minResults });
+    await runHashtags(primary, DEEP_RESULTS_PER_HASHTAG);
+  }
+
+  logger.info('Instagram collector: finished', { totalVideos: allVideos.length, fresh: freshCount() });
   return allVideos;
 }
 

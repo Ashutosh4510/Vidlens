@@ -1,11 +1,11 @@
 const config = require('../config');
 const logger = require('../utils/logger');
 const { resolveProduct } = require('./productResolver');
-const { analyzeProductImage, scoreVideos } = require('./imageBrain');
+const { analyzeProductImage, scoreVideos, scoreVideoHeuristic } = require('./imageBrain');
 const { collectInstagramReels } = require('./instagramCollector');
 const { collectMetaAds } = require('./metaAdCollector');
 const { collectTikTokVideos } = require('./tiktokCollector');
-const { deduplicateVideos, getDeficit } = require('./deduplicator');
+const { partitionVideos, getDeficit } = require('./deduplicator');
 const db = require('../db/queries');
 
 // In-memory progress tracking per search
@@ -150,28 +150,33 @@ async function runSearchPipeline(searchId, input, { image } = {}) {
 
     emitProgress(searchId, 'deduplicating', `De-duplicating ${instagramVideos.length + metaVideos.length + tiktokVideos.length} videos...`);
 
-    // Step 4: De-duplicate
-    const igDeduped = deduplicateVideos(instagramVideos, 'instagram');
-    const metaDeduped = deduplicateVideos(metaVideos, 'meta');
-    const tiktokDeduped = deduplicateVideos(tiktokVideos, 'tiktok');
+    // Step 4: De-duplicate within the batch and split off videos returned by earlier searches
+    const ig = partitionVideos(instagramVideos, 'instagram');
+    const meta = partitionVideos(metaVideos, 'meta');
+    const tiktok = partitionVideos(tiktokVideos, 'tiktok');
 
-    // Check deficits
-    const igDeficit = getDeficit(igDeduped.length, MIN);
-    const metaDeficit = getDeficit(metaDeduped.length, MIN);
+    // Check deficits (only unseen videos count toward the minimum)
+    const igDeficit = getDeficit(ig.fresh.length, MIN);
+    const metaDeficit = getDeficit(meta.fresh.length, MIN);
 
     if (igDeficit > 0) {
-      emitProgress(searchId, 'shortfall', `Instagram: ${igDeduped.length}/${MIN} videos. Shortfall of ${igDeficit} flagged.`);
+      emitProgress(searchId, 'shortfall', `Instagram: ${ig.fresh.length}/${MIN} new videos after broadened and deeper searches. Shortfall of ${igDeficit} flagged.`);
     }
     if (metaDeficit > 0) {
-      emitProgress(searchId, 'shortfall', `Meta: ${metaDeduped.length}/${MIN} videos. Shortfall of ${metaDeficit} flagged.`);
+      emitProgress(searchId, 'shortfall', `Meta: ${meta.fresh.length}/${MIN} new videos after broadened and deeper searches. Shortfall of ${metaDeficit} flagged.`);
     }
 
     emitProgress(searchId, 'scoring', 'Scoring videos against product...');
 
-    // Step 5: Score videos
-    const scoredIG = await scoreVideoBatch(igDeduped, analysis);
-    const scoredMeta = await scoreVideoBatch(metaDeduped, analysis);
-    const scoredTiktok = await scoreVideoBatch(tiktokDeduped, analysis);
+    // Step 5: Score new videos; previously seen ones reuse their stored score
+    const scoredIG = await scoreVideoBatch(ig.fresh, analysis);
+    const scoredMeta = await scoreVideoBatch(meta.fresh, analysis);
+    const scoredTiktok = await scoreVideoBatch(tiktok.fresh, analysis);
+    const seenVideos = [
+      ...withStoredScores(ig.previouslySeen, analysis),
+      ...withStoredScores(meta.previouslySeen, analysis),
+      ...withStoredScores(tiktok.previouslySeen, analysis),
+    ];
 
     emitProgress(searchId, 'saving', 'Saving results...');
 
@@ -181,6 +186,8 @@ async function runSearchPipeline(searchId, input, { image } = {}) {
     if (scoredTiktok.length > 0) {
       db.insertVideos(searchId, scoredTiktok);
     }
+    // Hidden unless the user turns on "Show previously seen"
+    db.insertVideos(searchId, seenVideos);
 
     // Update search record
     db.updateSearch(searchId, {
@@ -218,6 +225,25 @@ async function runSearchPipeline(searchId, input, { image } = {}) {
 
     throw error;
   }
+}
+
+/**
+ * Attach the score each previously seen video got in an earlier search (falls back to the
+ * text heuristic if that search was deleted) and mark it as previously seen.
+ */
+function withStoredScores(videos, analysis) {
+  const capped = videos.slice(0, MAX_SCORED_PER_PLATFORM);
+  const stored = db.getStoredScores(capped.map((v) => db.hashVideoUrl(v.videoUrl)));
+  return capped.map((video) => {
+    const prior = stored.get(db.hashVideoUrl(video.videoUrl));
+    const score = prior
+      ? { matchScore: prior.match_score, matchReason: prior.match_reason, isBelowThreshold: prior.is_below_threshold === 1 }
+      : (() => {
+        const h = scoreVideoHeuristic(video, analysis);
+        return { matchScore: h.score, matchReason: h.reason, isBelowThreshold: h.score < config.matchThreshold };
+      })();
+    return { ...video, ...score, isPreviouslySeen: true };
+  });
 }
 
 // Collectors return candidates in query-priority order; only the first N per platform

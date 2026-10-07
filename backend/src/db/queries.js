@@ -52,8 +52,8 @@ function hashVideoUrl(url) {
 function insertVideos(searchId, videos) {
   const db = getDb();
   const insertVideo = db.prepare(`
-    INSERT OR IGNORE INTO videos (id, search_id, platform, platform_video_id, video_url, thumbnail_url, caption, author, match_score, match_reason, is_below_threshold, media_url_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO videos (id, search_id, platform, platform_video_id, video_url, thumbnail_url, caption, author, match_score, match_reason, is_below_threshold, media_url_hash, is_previously_seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSeen = db.prepare(`
     INSERT OR IGNORE INTO seen_videos (video_hash, search_id, platform)
@@ -74,7 +74,8 @@ function insertVideos(searchId, videos) {
         v.matchScore || v.match_score || 0,
         v.matchReason || v.match_reason || null,
         v.isBelowThreshold || v.is_below_threshold ? 1 : 0,
-        urlHash
+        urlHash,
+        v.isPreviouslySeen || v.is_previously_seen ? 1 : 0
       );
       insertSeen.run(urlHash, searchId, v.platform);
     }
@@ -91,6 +92,10 @@ function getVideosBySearchId(searchId, { platform, sortBy, showPreviouslySeen } 
   if (platform) {
     query += ' AND platform = ?';
     params.push(platform);
+  }
+
+  if (!showPreviouslySeen) {
+    query += ' AND is_previously_seen = 0';
   }
 
   switch (sortBy) {
@@ -125,10 +130,28 @@ function isVideoSeen(videoUrl) {
   return !!row;
 }
 
+/**
+ * Most recent stored score for each media-URL hash, so videos returned again by a later
+ * search can reuse their score instead of being re-analysed.
+ */
+function getStoredScores(hashes) {
+  const db = getDb();
+  const lookup = db.prepare(`
+    SELECT match_score, match_reason, is_below_threshold FROM videos
+    WHERE media_url_hash = ? ORDER BY created_at DESC LIMIT 1
+  `);
+  const scores = new Map();
+  for (const hash of hashes) {
+    const row = lookup.get(hash);
+    if (row) scores.set(hash, row);
+  }
+  return scores;
+}
+
 function getSearchVideoCounts(searchId) {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT platform, COUNT(*) as count FROM videos WHERE search_id = ? GROUP BY platform
+    SELECT platform, COUNT(*) as count FROM videos WHERE search_id = ? AND is_previously_seen = 0 GROUP BY platform
   `).all(searchId);
   const counts = { instagram: 0, meta: 0, tiktok: 0 };
   for (const r of rows) {
@@ -147,5 +170,6 @@ module.exports = {
   getVideosBySearchId,
   getSeenVideoHashes,
   isVideoSeen,
+  getStoredScores,
   getSearchVideoCounts,
 };

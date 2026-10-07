@@ -2739,3 +2739,27 @@ body::before {
     margin-right: 4px;
   }
 }
+
+/* Videos returned by an earlier search (visible when "Show previously seen" is on) */
+.vcard__pills {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vcard__seen {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  font-size: 0.66rem;
+  color: var(--text-secondary);
+}
+
+.vcard--seen {
+  border-style: dashed;
+}

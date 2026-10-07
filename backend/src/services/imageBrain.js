@@ -436,4 +436,4 @@ async function fetchImage(imageUrl) {
   }
 }
 
-module.exports = { analyzeProductImage, scoreVideos };
+module.exports = { analyzeProductImage, scoreVideos, scoreVideoHeuristic, scoreCaptionRelevance };

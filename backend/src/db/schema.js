@@ -73,6 +73,14 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_seen_videos_hash ON seen_videos(video_hash);
     CREATE INDEX IF NOT EXISTS idx_searches_created ON searches(created_at DESC);
   `);
+
+  // Migration: videos already returned by an earlier search are stored but hidden unless
+  // the user turns on "Show previously seen".
+  const videoColumns = db.prepare('PRAGMA table_info(videos)').all().map((c) => c.name);
+  if (!videoColumns.includes('is_previously_seen')) {
+    db.exec('ALTER TABLE videos ADD COLUMN is_previously_seen INTEGER DEFAULT 0');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_videos_media_hash ON videos(media_url_hash)');
 }
 
 module.exports = { getDb };

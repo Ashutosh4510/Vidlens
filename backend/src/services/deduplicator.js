@@ -66,6 +66,22 @@ function deduplicateVideos(videos, platform, filterPreviouslySeen = true) {
 }
 
 /**
+ * Remove in-batch duplicates and near-duplicates, then split the rest into videos the user
+ * has not seen yet (`fresh`) and ones already returned by an earlier search (`previouslySeen`).
+ */
+function partitionVideos(videos, platform) {
+  const seenBefore = getSeenVideoHashes(platform);
+  const unique = deduplicateVideos(videos, platform, false);
+  const fresh = [];
+  const previouslySeen = [];
+  for (const video of unique) {
+    (seenBefore.has(hashVideoUrl(video.videoUrl)) ? previouslySeen : fresh).push(video);
+  }
+  logger.info('Partitioned videos', { platform, fresh: fresh.length, previouslySeen: previouslySeen.length });
+  return { fresh, previouslySeen };
+}
+
+/**
  * Create a hash for near-duplicate detection.
  * Normalizes caption by removing whitespace, lowercasing, and removing emojis,
  * then combines with author for a fingerprint.
@@ -95,4 +111,4 @@ function getDeficit(currentCount, minRequired) {
   return Math.max(0, minRequired - currentCount);
 }
 
-module.exports = { deduplicateVideos, hashCaption, getDeficit };
+module.exports = { deduplicateVideos, partitionVideos, hashCaption, getDeficit };

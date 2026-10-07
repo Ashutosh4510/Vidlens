@@ -211,7 +211,8 @@ To ensure each search provides unique, unseen videos:
 1. **SHA-256 URL Hashing**: Media URLs and permalinks are hashed and indexed in SQLite (`seen_videos` table).
 2. **Platform ID Normalization**: Reels shortcodes (`/reel/C8x.../`) and Meta Ad Archive IDs (`?id=10283...`) are tracked to prevent repost duplicates.
 3. **Near-Duplicate Detection**: Detects re-uploads from the same creator or agency by generating an MD5 fingerprint of normalized caption text (stop words removed, punctuation stripped) combined with author handle.
-4. **Cross-Search Filtering**: Results already delivered in prior search sessions are automatically filtered unless the user toggles **"Show previously seen"**.
+4. **Cross-Search Filtering**: Videos already returned by an earlier search are split off before scoring. They are stored with the new search but flagged `is_previously_seen`, hidden by default, and shown with a "Seen before" badge when the user turns on **"Show previously seen"**. They reuse the score from their earlier search (no extra AI calls) and do not count toward the 20-video minimum.
+5. **Refill After De-duplication**: Collectors count only unseen videos toward the minimum. If a source is short, they run broader category queries, then page deeper into the primary hashtags/keywords (30 reels per hashtag, 40 ads per query). Any remaining deficit is shown in the progress log and a banner rather than padded.
 
 ---
 
