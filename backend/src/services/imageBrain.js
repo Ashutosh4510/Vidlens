@@ -283,7 +283,7 @@ Return a JSON object with these exact fields:
 const PLACEHOLDER_VALUE = /^(unknown|n\/?a|none|null|generic|unbranded|not visible|not identifiable)$/i;
 const cleanValue = (v) => (typeof v === 'string' && !PLACEHOLDER_VALUE.test(v.trim()) ? v.trim() : '');
 const cleanList = (list) => (Array.isArray(list) ? list.map(cleanValue).filter(Boolean) : []);
-const withoutPlaceholders = (list) => cleanList(list).filter((v) => !/unknown/i.test(v));
+const withoutPlaceholders = (list) => cleanList(list).filter((v) => !/\bunknown\b/i.test(v));
 
 function normalizeAnalysis(analysis, productTitle) {
   return {

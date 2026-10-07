@@ -9,7 +9,7 @@ const { partitionVideos, getDeficit } = require('./deduplicator');
 const db = require('../db/queries');
 const { brandedProduct } = require('../utils/queryText');
 
-const titleCase = (text) => text.replace(/\w/g, (c) => c.toUpperCase());
+const titleCase = (text) => text.replace(/\b\w/g, (c) => c.toUpperCase());
 
 // In-memory progress tracking per search
 const progressMap = new Map();
