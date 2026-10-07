@@ -13,9 +13,13 @@ require('./db/schema').getDb();
 const app = express();
 
 // Middleware
-// Any local dev port (Vite moves to 5174+ when 5173 is busy)
+// Local dev on any port, plus deployed frontends listed in FRONTEND_URL (comma-separated)
+const allowedOrigins = [
+  /^http:\/\/(localhost|127\.0\.0\.1):\d+$/,
+  ...(process.env.FRONTEND_URL || '').split(',').map((u) => u.trim().replace(/\/$/, '')).filter(Boolean),
+];
 app.use(cors({
-  origin: /^http:\/\/(localhost|127\.0\.0\.1):\d+$/,
+  origin: allowedOrigins,
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));

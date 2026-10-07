@@ -134,6 +134,11 @@ The repo includes a [`render.yaml`](render.yaml) Blueprint: one web service that
 
 Keys can be changed later under the service's **Environment** tab (save → the service restarts). The free plan has no persistent disk, so the SQLite database resets on restart; the recorded demo searches are loaded automatically on an empty database (set `SEED_DEMO=false` to disable). Free services sleep after inactivity, so the first request can take ~1 minute.
 
+### Alternative: frontend and backend hosted separately
+1. **Backend first** (Render → New → Web Service): root directory `backend`, build `npm install`, start `node src/server.js`, env vars `APIFY_API_TOKEN`, `GEMINI_API_KEY`, `NODE_ENV=production`. Note its URL, e.g. `https://vidlens-api.onrender.com`.
+2. **Frontend** (Vercel/Netlify): root directory `frontend`, build `npm run build`, output `dist`, env var `VITE_API_BASE=https://vidlens-api.onrender.com/api`.
+3. Back on the backend, set `FRONTEND_URL=https://your-frontend.vercel.app` so CORS allows it, and redeploy.
+
 ---
 
 ## 🐳 Docker Deployment (One-Command Run)
