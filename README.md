@@ -99,7 +99,7 @@ cd ..
 ```
 
 ### 4. (Optional) Load Recorded Searches
-No Apify credit? Load the four recorded live searches into your local database to explore the dashboard:
+No Apify credit? Load the five recorded live searches into your local database to explore the dashboard:
 ```bash
 cd backend
 npm run seed:demo
@@ -216,9 +216,9 @@ To ensure each search provides unique, unseen videos:
 
 ---
 
-## 🧪 Test Evidence: Live Runs (7 Oct 2026)
+## 🧪 Test Evidence: Live Runs (7 Oct 2026, 5 products)
 
-Four products were searched live against Apify + Gemini. **Collected** = unique videos kept after de-duplication (up to 48 per platform are scored). **Relevant** = AI match score ≥ 40. The full results are in [`backend/demo/recorded-searches.json`](backend/demo/recorded-searches.json) and can be loaded into the dashboard with `npm run seed:demo`.
+Five products were searched live against Apify + Gemini. **Collected** = unique videos kept after de-duplication (up to 48 per platform are scored). **Relevant** = AI match score ≥ 40. The full results of all five runs are in [`backend/demo/recorded-searches.json`](backend/demo/recorded-searches.json) and can be loaded into the dashboard with `npm run seed:demo`.
 
 | # | Product Input | Type | Instagram (collected / relevant) | Meta Ads (collected / relevant) | Score Range | Good Match | Low Match (correctly ranked down) |
 |---|---|---|---|---|---|---|---|
@@ -226,12 +226,13 @@ Four products were searched live against Apify + Gemini. **Collected** = unique 
 | **2** | `protein dark chocolate` | Keyword | 48 / 18 | 22 / 7 | 0 – 95 | [Ad](https://www.facebook.com/ads/library/?id=2063920524239154) — *"Clearly features and eating a protein chocolate bar"* (95) | [Reel](https://www.instagram.com/reel/DeFNLF9NvuN/) — *"chicken and chips meal; unrelated to protein bars"* (10) |
 | **3** | `https://www.gymshark.com/products/gymshark-crest-hoodie-black-ss22` | URL | 48 / 2 | 21 / 1 | 0 – 90 | [Reel](https://www.instagram.com/reel/Dd9NHYnKGsL/) — *"Clearly features the Gymshark black crest hoodie"* (90) | [Reel](https://www.instagram.com/reel/DeF6991TzDC/) — *"Unrelated motorcycle video"* (0) |
 | **4** | `minimalist leather backpack` | Keyword | 48 / 14 | 24 / 6 | 0 – 90 | [Ad](https://www.facebook.com/ads/library/?id=1403422461913852) — *"minimalist leather rolltop backpack"* (90) | [Reel](https://www.instagram.com/reel/DdEIwHPpgb1/) — *"Action thriller show trailer, unrelated"* (0) |
+| **5** | `wireless noise canceling headphones` | Keyword | 40 / 9 | 45 / 18 | 0 – 95 | [Ad](https://www.facebook.com/ads/library/?id=1096246696177280) — *"Sony wireless noise canceling over-ear headphones clearly worn"* (95) | [Reel](https://www.instagram.com/reel/CoaXup7Ik56/) — *"Podcast promotion about cancel culture, unrelated"* (0) |
 
 **Observations**
 - Every search met the 20-video collection target on both platforms; relevance depends on how much content exists for the product.
 - Broad products (tees, protein bars) yield many relevant videos. A single exact SKU (Gymshark Crest Hoodie) has few creator videos, so most collected videos are correctly scored low rather than inflated.
 - Captions in other languages (e.g. Spanish, Indonesian) were scored correctly because the AI judges thumbnail + caption, not keyword overlap.
-- A 5th run (`wireless noise canceling headphones`) collected 172 reels + 41 ads in an earlier test, but the final scored run was cut off when the Apify free-plan monthly limit was reached.
+- Run 5 was made on the deployed Render instance. 16 of its 40 reels were scored by the keyword fallback because one Gemini batch failed on the free tier; those are labelled "Keyword match" in the UI rather than "AI verdict".
 
 ---
 
