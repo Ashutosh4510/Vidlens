@@ -2591,3 +2591,74 @@ body::before {
   flex-shrink: 0;
   border-radius: var(--radius-sm);
 }
+
+.scan__histogram {
+  position: relative;
+}
+
+.scan__empty {
+  position: absolute;
+  inset: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ─── Mobile: filter bar ─── */
+@media (max-width: 768px) {
+  .filter-bar {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  /* Tabs stay on one line and scroll sideways */
+  .filter-bar__tabs {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-bar__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 8px 12px;
+  }
+
+  .filter-tab__count {
+    white-space: nowrap;
+  }
+
+  .filter-bar__controls {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .filter-bar__controls > div {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .filter-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filter-bar__controls .btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  /* The stacked mobile filter bar is too tall to stay pinned over the cards */
+  .filter-bar {
+    position: static;
+  }
+}

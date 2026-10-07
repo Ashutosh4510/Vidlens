@@ -24,11 +24,12 @@ function ScoreHistogram({ scores }) {
 
   return (
     <div className="scan__histogram" aria-label="Match score distribution">
+      {scores.length === 0 && <span className="scan__empty">No scores yet</span>}
       <div className="scan__bars">
         {buckets.map((count, i) => (
           <span
             key={i}
-            className={`scan__bar ${i >= 4 ? 'scan__bar--relevant' : ''}`}
+            className={`scan__bar ${i >= 4 && count > 0 ? 'scan__bar--relevant' : ''}`}
             style={{ '--h': `${Math.max(4, (count / max) * 100)}%`, '--i': i }}
             title={`${i * 10}–${i * 10 + 9}: ${count} video${count === 1 ? '' : 's'}`}
           />
