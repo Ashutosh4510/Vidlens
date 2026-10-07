@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test src/tests/deduplication.test.js src/tests/scoring.test.js",
-    "seed:demo": "node scripts/seedRecorded.js"
+    "seed:demo": "node scripts/seedRecorded.js",
+    "postinstall": "npm rebuild better-sqlite3"
   },
   "engines": {
     "node": "22.x"
