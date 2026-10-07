@@ -1,8 +1,32 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import VideoCard from './VideoCard';
 import { AlertTriangle, VideoOff, RefreshCw } from 'lucide-react';
 
+const MIN_COLUMN_PX = 290;
+
+/**
+ * Number of masonry columns that fit `el`, updated on resize. Takes the element itself
+ * (from a callback ref) because the grid mounts only once results arrive.
+ */
+function useColumnCount(el) {
+  const [count, setCount] = useState(4);
+
+  useEffect(() => {
+    if (!el) return undefined;
+    const update = () => setCount(Math.max(1, Math.floor(el.clientWidth / MIN_COLUMN_PX)));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+
+  return count;
+}
+
 export default function ResultsGrid({ videos, isLoading, platform, counts, shortlist = [], onToggleShortlist }) {
+  const [masonryEl, setMasonryEl] = useState(null);
+  const columnCount = useColumnCount(masonryEl);
+
   if (isLoading && (!videos || videos.length === 0)) {
     return (
       <div className="results-grid">
@@ -27,8 +51,8 @@ export default function ResultsGrid({ videos, isLoading, platform, counts, short
 
   const igCount = counts.instagram || 0;
   const metaCount = counts.meta || 0;
-  const showIgShortfall = (platform === 'all' || platform === 'instagram') && igCount < 20 && igCount > 0;
-  const showMetaShortfall = (platform === 'all' || platform === 'meta') && metaCount < 20 && metaCount > 0;
+  const showIgShortfall = (platform === 'all' || platform === 'instagram') && igCount < 20;
+  const showMetaShortfall = (platform === 'all' || platform === 'meta') && metaCount < 20;
 
   const shortlistedIds = new Set(shortlist.map((v) => v.id || v.videoUrl || v.video_url));
 
@@ -41,23 +65,30 @@ export default function ResultsGrid({ videos, isLoading, platform, counts, short
             <strong>Notice on 20-video target: </strong>
             {showIgShortfall && `Instagram returned ${igCount}/20. `}
             {showMetaShortfall && `Meta Ad Library returned ${metaCount}/20. `}
-            Deep query broadening triggered to gather as many unique items as possible.
+            Broader category queries were tried; only real, unique videos are shown.
           </div>
         </div>
       )}
 
-      <div className="results-grid">
-        {videos.map((vid) => {
-          const vidId = vid.id || vid.videoUrl || vid.video_url;
-          return (
-            <VideoCard
-              key={vidId}
-              video={vid}
-              isShortlisted={shortlistedIds.has(vidId)}
-              onToggleShortlist={onToggleShortlist}
-            />
-          );
-        })}
+      {/* Round-robin into columns so the best scores stay along the top rows */}
+      <div className="masonry" ref={setMasonryEl}>
+        {Array.from({ length: columnCount }, (_, col) => (
+          <div key={col} className="masonry__column">
+            {videos.map((vid, index) => {
+              if (index % columnCount !== col) return null;
+              const vidId = vid.id || vid.videoUrl || vid.video_url;
+              return (
+                <VideoCard
+                  key={vidId}
+                  index={index}
+                  video={vid}
+                  isShortlisted={shortlistedIds.has(vidId)}
+                  onToggleShortlist={onToggleShortlist}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 const config = require('../config');
 const logger = require('../utils/logger');
 const { resolveProduct } = require('./productResolver');
-const { analyzeProductImage, scoreVideo } = require('./imageBrain');
+const { analyzeProductImage, scoreVideos } = require('./imageBrain');
 const { collectInstagramReels } = require('./instagramCollector');
 const { collectMetaAds } = require('./metaAdCollector');
 const { collectTikTokVideos } = require('./tiktokCollector');
@@ -112,15 +112,20 @@ async function runSearchPipeline(searchId, input) {
     // Add imageUrl to analysis for scoring
     analysis.imageUrl = product.imageUrl;
 
-    emitProgress(searchId, 'collecting_instagram', 'Searching Instagram Reels...');
-    emitProgress(searchId, 'collecting_meta', 'Searching Meta Ad Library...');
+    emitProgress(searchId, 'collecting', 'Searching Instagram Reels and Meta Ad Library in parallel...');
 
     // Step 3: Collect videos in parallel
     const MIN = config.minVideosPerSource;
 
     const [instagramRaw, metaRaw, tiktokRaw] = await Promise.allSettled([
-      collectInstagramReels(analysis, db.getSeenVideoHashes('instagram'), MIN),
-      collectMetaAds(analysis, db.getSeenVideoHashes('meta'), MIN),
+      collectInstagramReels(analysis, db.getSeenVideoHashes('instagram'), MIN).then((videos) => {
+        emitProgress(searchId, 'collected_instagram', `Instagram: ${videos.length} reels collected`);
+        return videos;
+      }),
+      collectMetaAds(analysis, db.getSeenVideoHashes('meta'), MIN).then((videos) => {
+        emitProgress(searchId, 'collected_meta', `Meta Ad Library: ${videos.length} video ads collected`);
+        return videos;
+      }),
       collectTikTokVideos(analysis, db.getSeenVideoHashes('tiktok')),
     ]);
 
@@ -209,24 +214,18 @@ async function runSearchPipeline(searchId, input) {
   }
 }
 
+// Collectors return candidates in query-priority order; only the first N per platform
+// are AI-scored and kept, which bounds Gemini calls (N / 12 batches) per platform.
+const MAX_SCORED_PER_PLATFORM = 48;
+
 /**
- * Score a batch of videos. Processes in parallel with concurrency limit.
+ * Score a platform's videos and sort by match score, best first.
  */
-async function scoreVideoBatch(videos, analysis, concurrency = 5) {
-  const results = [];
+async function scoreVideoBatch(videos, analysis) {
+  const candidates = videos.slice(0, MAX_SCORED_PER_PLATFORM);
+  const scores = await scoreVideos(candidates, analysis);
+  const results = candidates.map((video, i) => ({ ...video, ...scores[i] }));
 
-  for (let i = 0; i < videos.length; i += concurrency) {
-    const batch = videos.slice(i, i + concurrency);
-    const scored = await Promise.all(
-      batch.map(async (video) => {
-        const score = await scoreVideo(video, analysis);
-        return { ...video, ...score };
-      })
-    );
-    results.push(...scored);
-  }
-
-  // Sort by match score descending
   results.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
   return results;
 }

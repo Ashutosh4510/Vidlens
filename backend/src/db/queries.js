@@ -22,7 +22,8 @@ function updateSearch(id, updates) {
     // Convert camelCase to snake_case
     const snakeKey = key.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase());
     fields.push(`${snakeKey} = ?`);
-    values.push(typeof value === 'object' ? JSON.stringify(value) : value);
+    // typeof null === 'object': store real NULLs, not the string "null"
+    values.push(value !== null && typeof value === 'object' ? JSON.stringify(value) : value);
   }
   values.push(id);
   db.prepare(`UPDATE searches SET ${fields.join(', ')} WHERE id = ?`).run(...values);

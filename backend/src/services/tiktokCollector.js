@@ -31,8 +31,9 @@ async function collectTikTokVideos(productAnalysis, existingHashes = new Set(), 
           shouldDownloadVideos: false,
         },
         {
-          timeoutSecs: config.apifyTimeoutSecs,
-          memoryMbytes: 512,
+          timeout: config.apifyTimeoutSecs,
+          memory: 512,
+          log: null,
         }
       );
 

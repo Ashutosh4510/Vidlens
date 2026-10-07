@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, ArrowUpDown, Eye, Download, Bookmark } from 'lucide-react';
+import { ArrowUpDown, Eye, Download, Check } from 'lucide-react';
 
 export default function FilterBar({
   activeTab,
@@ -38,14 +38,17 @@ export default function FilterBar({
               className={`filter-tab ${activeTab === tab.id ? 'filter-tab--active' : ''}`}
               onClick={() => onTabChange(tab.id)}
             >
+              <i className={`filter-tab__dot filter-tab__dot--${tab.id}`} />
               <span>{tab.label}</span>
               <span
                 className="filter-tab__count"
+                title={tab.target ? `Target: at least ${tab.target}` : undefined}
                 style={{
-                  background: !meetsTarget && tab.count > 0 ? 'rgba(245, 158, 11, 0.4)' : undefined,
+                  background: !meetsTarget ? 'rgba(245, 158, 11, 0.4)' : undefined,
                 }}
               >
-                {tab.count}{tab.target ? `/${tab.target}` : ''}
+                {tab.count}
+                {tab.target > 0 && (meetsTarget ? <Check size={10} style={{ marginLeft: 3 }} /> : ` / ${tab.target}`)}
               </span>
             </button>
           );

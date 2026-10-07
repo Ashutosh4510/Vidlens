@@ -1,4 +1,4 @@
-# 🎥 Lumin — Product Video Discovery Dashboard
+# 🎥 VidLens — Product Video Discovery Dashboard
 
 > **Full-Stack AI Automation & Video Discovery Dashboard**  
 > Built with Node.js (Express), React (Vite), SQLite, Apify Scrapers, and Google Gemini Vision AI.
@@ -7,7 +7,7 @@
 
 ## 📌 Executive Overview
 
-Lumin is an intelligent video discovery pipeline that accepts a **product keyword** or **live e-commerce URL** (Shopify, Amazon, DTC brand site) and discovers at least **40 relevant short-form videos**:
+VidLens is an intelligent video discovery pipeline that accepts a **product keyword** or **live e-commerce URL** (Shopify, Amazon, DTC brand site) and discovers at least **40 relevant short-form videos**:
 - **20 Instagram Reels**
 - **20 Meta Ad Library Video Ads**
 - *(Optional bonus: TikTok Videos behind toggle)*
@@ -47,8 +47,8 @@ flowchart TD
 | **Backend** | **Node.js + Express** | Lightweight, high-throughput asynchronous I/O, native support for Server-Sent Events (SSE) streaming. |
 | **Frontend** | **React 18 + Vite** | Sub-second HMR, modular UI components, high performance, and responsive styling without bloat. |
 | **Database** | **SQLite (via `better-sqlite3`)** | Zero configuration, ACID-compliant file database with WAL journal mode; ideal for local deployments and fast deduplication indexing. |
-| **Scraping** | **Apify Scrapers** | Enterprise-grade scraper actors for Instagram Reels (`apify/instagram-reel-scraper`) and Meta Ads Library (`apify/facebook-ads-scraper`) to bypass client-side anti-bot protections, rate limits, and login walls. |
-| **AI Vision Brain** | **Google Gemini 2.0 Flash Vision** | Generates multimodal structured JSON directly from product imagery and text, extracting precise visual facets and hashtags. Includes automatic heuristic fallback. |
+| **Scraping** | **Apify Scrapers** | Managed scraper actors for Instagram Reels (`apify/instagram-hashtag-scraper`) and Meta Ads Library (`apify/facebook-ads-scraper`) that handle anti-bot protections, rate limits, and login walls. |
+| **AI Vision Brain** | **Google Gemini Flash / Flash-Lite (vision)** | Generates multimodal structured JSON directly from product imagery and text, extracting precise visual facets and hashtags, then scoring every video's thumbnail + caption in batches. Includes automatic heuristic fallback. Model is configurable via `GEMINI_MODEL`. |
 | **Styling** | **Vanilla CSS (Design Tokens)** | High-aesthetic deep space theme with glassmorphism, micro-animations, accessible contrast, and zero external framework lock-in. |
 
 ---
@@ -78,7 +78,11 @@ APIFY_API_TOKEN=your_apify_token_here
 GEMINI_API_KEY=your_gemini_api_key_here
 ENABLE_TIKTOK=false
 ```
-*(Note: If Apify or Gemini keys are omitted, the dashboard automatically activates its resilient heuristic discovery mode, ensuring the 20+20 quota is always verifiable.)*
+*(Note: `APIFY_API_TOKEN` is required to collect videos — without it, no videos are returned. If `GEMINI_API_KEY` is omitted, product analysis and scoring fall back to text heuristics.)*
+
+**Free-tier budgets** (both are enough to evaluate the app):
+- **Apify** free plan: $5/month. One search costs roughly $0.35–0.40 (≈60 reels ≈ $0.10–0.15, Meta ad search ≈ $0.26), so about 12–14 searches per month.
+- **Gemini** free tier: daily request limits are per model, so `GEMINI_MODEL` takes a comma-separated fallback chain (default `gemini-flash-lite-latest,gemini-3.1-flash-lite-preview,gemini-3-flash-preview`). One search uses about 4–6 requests.
 
 ### 3. Install Dependencies
 ```bash
@@ -92,7 +96,15 @@ npm install
 cd ..
 ```
 
-### 4. Run the Application
+### 4. (Optional) Load Recorded Searches
+No Apify credit? Load the four recorded live searches into your local database to explore the dashboard:
+```bash
+cd backend
+npm run seed:demo
+```
+They appear in **Search History** with a `(recorded 7 Oct 2026)` suffix. Note: Instagram thumbnail URLs are signed and expire after a few days, so recorded reel thumbnails may stop loading; the reel links keep working.
+
+### 5. Run the Application
 **Terminal 1 — Backend Server:**
 ```bash
 cd backend
@@ -125,15 +137,15 @@ The server will boot on port `3001` with built production assets.
 ## 🔍 Video Sourcing Breakdown
 
 ### 1. Instagram Reels
-- **Method**: Apify actor `apify/instagram-reel-scraper` called with queries and hashtags derived by the Image Brain.
-- **Query Strategy**: Searches primary hashtags (`#oversizedtee`), brand queries, and color-product combos.
-- **Handling Rate Limits & Login Walls**: Delegated to Apify's rotating residential proxy pools. If an actor session fails or throttles, the pipeline automatically retries with secondary hashtag queries.
-- **Shortfall Mitigation**: If fewer than 20 unique items are returned, the engine triggers query broadening using generic category synonyms and flags any deficit in the UI banner.
+- **Method**: Apify actor `apify/instagram-hashtag-scraper` with `resultsType: 'reels'`, run once with up to 6 hashtags derived by the Image Brain.
+- **Query Strategy**: Image Brain hashtags (`#oversizedtee`), brand + product type, color + product type, sanitized to valid hashtag characters.
+- **Handling Rate Limits & Login Walls**: Delegated to Apify's proxy pools. On the Apify free plan the actor returns one page (~30 posts) per hashtag, which is why several hashtags are searched per run.
+- **Shortfall Mitigation**: If fewer than 20 unique items are returned, the engine retries with broader category-level queries. Any remaining deficit is flagged in the UI banner — results are never padded with placeholder videos.
 
 ### 2. Meta Ad Library
-- **Method**: Apify actor `apify/facebook-ads-scraper` querying commercial video ads across global ad archives.
-- **Filtering**: Specifically checks for `mediaType === 'VIDEO'`, `snapshot.videos`, or `.video_url` creatives to filter out static image ads.
-- **Resilience**: If the primary scraper throttles, the pipeline cascades to the fallback `curious_coder/facebook-ads-library-scraper`.
+- **Method**: Apify actor `apify/facebook-ads-scraper` with Ad Library search URLs (`media_type=video`, all countries). Primary keywords use exact-phrase search; broadened keywords use any-word search.
+- **Filtering**: Keeps only ads with a video creative (`snapshot.videos` or a video card); static image ads are dropped. Dynamic-product-ad templates like `{{product.brand}}` are skipped when picking the caption.
+- **Shortfall Mitigation**: Same as Instagram — broader category keywords, then an honest deficit banner.
 
 ### 3. TikTok (Optional Bonus)
 - Behind the `ENABLE_TIKTOK=true` environment variable and UI tab so it never blocks required platforms.
@@ -145,7 +157,7 @@ The server will boot on port `3001` with built production assets.
 The Image Brain ensures returned videos showcase the **exact product** rather than superficial keywords.
 
 ```
-Product URL / Image ──► Gemini 2.0 Flash Vision ──► Visual Attributes:
+Product URL / Image ──► Gemini Flash Vision ──► Visual Attributes:
                                                     ├─ Product Type (e.g. "Oversized Heavyweight Tee")
                                                     ├─ Colors (e.g. "Washed Charcoal", "Off-White")
                                                     ├─ Patterns & Prints (e.g. "Distressed Back Graphic")
@@ -153,14 +165,22 @@ Product URL / Image ──► Gemini 2.0 Flash Vision ──► Visual Attribute
                                                     └─ Shape & Distinct Features
 ```
 
-### Scoring Formula (0 - 100 Scale)
-Every discovered video receives a match score calculated from three weighted dimensions:
-1. **Caption & Attribute Relevance (40%)**: Tests presence of extracted product type, colors, brand, and key visual terms in caption copy.
-2. **Query Overlap (30%)**: Normalized token overlap between video description and AI-generated search queries.
-3. **Visual Similarity (30%)**: Compares video thumbnail against product visual profile using Gemini Vision.
+### Scoring (0 - 100 Scale)
+Up to 48 candidates per platform are scored by Gemini in batches of 24 (one multimodal call per batch). Each call receives the extracted product attributes, the reference product photo (for URL input), and every video's **thumbnail + caption**. Gemini returns a score and a one-line reason per video using this rubric:
+
+| Score | Meaning |
+|---|---|
+| 80 – 100 | Clearly features this exact product or a near-identical one |
+| 50 – 79 | Same kind of product, with differences (color, style, brand) |
+| 20 – 49 | Loosely related (in passing, accessory, adjacent category) |
+| 0 – 19 | Unrelated (e.g. ads for novels or other product categories) |
+
+Judging the thumbnail and caption together handles captions in any language and catches creatives that only mention a keyword.
+
+**Fallback** (no Gemini key, or a batch fails after retries): caption attribute match (60%) + search-query token overlap (40%). Fallback reasons start with "Keyword match"; AI reasons start with "AI:".
 
 - **Threshold**: Videos scoring `< 40%` are flagged with a `"Low Match"` badge and dimmed in the UI.
-- **Transparency**: Every video card displays the exact reason for its match score (e.g., *"Caption matches: product type, brand, oversized, graphic; Strong keyword overlap"*).
+- **Transparency**: Every video card displays the exact reason for its match score (e.g., *"AI: Black oversized cotton tee with graphic print, dropped shoulders, and boxy fit."*).
 
 ---
 
@@ -175,15 +195,22 @@ To ensure each search provides unique, unseen videos:
 
 ---
 
-## 🧪 Test Evidence: 5 Tested Products
+## 🧪 Test Evidence: Live Runs (7 Oct 2026)
 
-| # | Product Input | Type | Instagram Reels | Meta Ad Library | Match Score Range | Good Match Example | Bad / Low Match Filtered |
+Four products were searched live against Apify + Gemini. **Collected** = unique videos kept after de-duplication (up to 48 per platform are scored). **Relevant** = AI match score ≥ 40. The full results are in [`backend/demo/recorded-searches.json`](backend/demo/recorded-searches.json) and can be loaded into the dashboard with `npm run seed:demo`.
+
+| # | Product Input | Type | Instagram (collected / relevant) | Meta Ads (collected / relevant) | Score Range | Good Match | Low Match (correctly ranked down) |
 |---|---|---|---|---|---|---|---|
-| **1** | `oversized graphic tee` | Keyword | 20 | 20 | 45% - 88% | *Fit check showcasing heavy drop-shoulder cotton graphic print (88%)* | *Generic beach sunset video with #tee tag (25% - Dimmed)* |
-| **2** | `protein dark chocolate` | Keyword | 20 | 20 | 50% - 92% | *Macro breakdown and unboxing of 85% dark cacao protein bar (92%)* | *Random dessert recipe without protein focus (32% - Dimmed)* |
-| **3** | `https://gymshark.com/products/crest-hoodie-black` | URL Scrape | 20 | 20 | 52% - 95% | *Gym workout video featuring black embroidered crest hoodie (95%)* | *Unbranded grey fleece pullover (38% - Dimmed)* |
-| **4** | `minimalist leather backpack` | Keyword | 20 | 20 | 48% - 86% | *Everyday carry showcase with full-grain leather zipper pack (86%)* | *Canvas hiking rucksack (35% - Dimmed)* |
-| **5** | `wireless noise canceling headphones` | Keyword | 20 | 20 | 55% - 94% | *Audio latency and ANC comparison test for over-ear set (94%)* | *Earbuds case unboxing (30% - Dimmed)* |
+| **1** | `oversized graphic tee` | Keyword | 48 / 24 | 38 / 22 | 0 – 95 | [Reel](https://www.instagram.com/reel/DPtAOFEkTQB/) — *"Clearly features oversized, boxy graphic t-shirts with dropped shoulders"* (95) | [Ad](https://www.facebook.com/ads/library/?id=1669793474569805) — *"video focuses on mid-rise denim jeans"* (0) |
+| **2** | `protein dark chocolate` | Keyword | 48 / 18 | 22 / 7 | 0 – 95 | [Ad](https://www.facebook.com/ads/library/?id=2063920524239154) — *"Clearly features and eating a protein chocolate bar"* (95) | [Reel](https://www.instagram.com/reel/DeFNLF9NvuN/) — *"chicken and chips meal; unrelated to protein bars"* (10) |
+| **3** | `https://www.gymshark.com/products/gymshark-crest-hoodie-black-ss22` | URL | 48 / 2 | 21 / 1 | 0 – 90 | [Reel](https://www.instagram.com/reel/Dd9NHYnKGsL/) — *"Clearly features the Gymshark black crest hoodie"* (90) | [Reel](https://www.instagram.com/reel/DeF6991TzDC/) — *"Unrelated motorcycle video"* (0) |
+| **4** | `minimalist leather backpack` | Keyword | 48 / 14 | 24 / 6 | 0 – 90 | [Ad](https://www.facebook.com/ads/library/?id=1403422461913852) — *"minimalist leather rolltop backpack"* (90) | [Reel](https://www.instagram.com/reel/DdEIwHPpgb1/) — *"Action thriller show trailer, unrelated"* (0) |
+
+**Observations**
+- Every search met the 20-video collection target on both platforms; relevance depends on how much content exists for the product.
+- Broad products (tees, protein bars) yield many relevant videos. A single exact SKU (Gymshark Crest Hoodie) has few creator videos, so most collected videos are correctly scored low rather than inflated.
+- Captions in other languages (e.g. Spanish, Indonesian) were scored correctly because the AI judges thumbnail + caption, not keyword overlap.
+- A 5th run (`wireless noise canceling headphones`) collected 172 reels + 41 ads in an earlier test, but the final scored run was cut off when the Apify free-plan monthly limit was reached.
 
 ---
 
@@ -214,8 +241,10 @@ npm test
 
 ## ⚠️ Known Limitations & Future Roadmap
 
-1. **Platform Rate Limits**: Scraping without residential proxies may encounter temporary throttling from Meta or Instagram. *Solution in place: Apify proxy management + graceful fallback.*
-2. **Video Playback CORS**: Instagram and Meta restrict iframe embeds for private or ad-archive videos. *Solution in place: Direct link-out cards with preview thumbnails.*
-3. **Future Roadmap**:
+1. **Platform Rate Limits**: Scraping without residential proxies may encounter temporary throttling from Meta or Instagram. *Solution in place: Apify proxy management, query broadening, and an explicit shortfall banner.*
+2. **Instagram thumbnails expire**: Instagram CDN thumbnail URLs are signed and stop loading after some time, so older searches in history may show broken thumbnails. The reel links keep working.
+3. **Scoring sees the thumbnail, not the full video**: a product shown only later in a video can be under-scored.
+4. **Video Playback CORS**: Instagram and Meta restrict iframe embeds for private or ad-archive videos. *Solution in place: Direct link-out cards with preview thumbnails.*
+5. **Future Roadmap**:
    - Webhook integration for asynchronous batch exports.
    - Vector database (e.g. Chroma / Qdrant) for CLIP image embeddings.

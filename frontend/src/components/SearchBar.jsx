@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Link as LinkIcon, Sparkles, ArrowRight } from 'lucide-react';
 
-export default function SearchBar({ onSearch, isLoading }) {
+export default function SearchBar({ onSearch, isLoading, compact = false }) {
   const [inputVal, setInputVal] = useState('');
 
   const sampleQueries = [
@@ -26,7 +26,7 @@ export default function SearchBar({ onSearch, isLoading }) {
   const isUrl = /^https?:\/\//i.test(inputVal.trim());
 
   return (
-    <section className="search-section">
+    <section className={`search-section ${compact ? 'search-section--compact' : ''}`}>
       <form onSubmit={handleSubmit} className="search-bar">
         <div className="search-bar__input-wrapper">
           <div className="search-bar__icon">
@@ -59,24 +59,26 @@ export default function SearchBar({ onSearch, isLoading }) {
           </button>
         </div>
 
-        <div className="search-bar__hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' }}>
-            <Sparkles size={14} style={{ color: 'var(--accent-secondary)' }} />
-            Quick Try:
-          </span>
-          {sampleQueries.map((item, idx) => (
-            <button
-              key={idx}
-              type="button"
-              className="btn btn--ghost"
-              style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: 'var(--radius-full)' }}
-              onClick={() => handleSelectSample(item.query)}
-              disabled={isLoading}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        {!compact && (
+          <div className="search-bar__hint" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' }}>
+              <Sparkles size={14} style={{ color: 'var(--accent-secondary)' }} />
+              Quick Try:
+            </span>
+            {sampleQueries.map((item, idx) => (
+              <button
+                key={idx}
+                type="button"
+                className="btn btn--ghost"
+                style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: 'var(--radius-full)' }}
+                onClick={() => handleSelectSample(item.query)}
+                disabled={isLoading}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
       </form>
     </section>
   );

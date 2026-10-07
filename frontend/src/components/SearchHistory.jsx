@@ -22,11 +22,11 @@ export default function SearchHistory({ history, onSelectSearch, onDeleteSearch,
               className="history-item"
               style={{
                 borderColor: isActive ? 'var(--accent-primary)' : undefined,
-                background: isActive ? 'rgba(124, 58, 237, 0.1)' : undefined,
+                background: isActive ? 'rgba(196, 255, 46, 0.1)' : undefined,
               }}
               onClick={() => onSelectSearch(item.id)}
             >
-              {item.product_image_url ? (
+              {item.product_image_url && item.product_image_url !== 'null' ? (
                 <img
                   src={item.product_image_url}
                   alt={item.query}

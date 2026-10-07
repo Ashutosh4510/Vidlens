@@ -12,9 +12,16 @@ import ProgressTracker from './components/ProgressTracker';
 import FilterBar from './components/FilterBar';
 import ResultsGrid from './components/ResultsGrid';
 import SearchHistory from './components/SearchHistory';
-import { Sparkles, Layers, Video, Shield, AlertCircle } from 'lucide-react';
+import Hero from './components/Hero';
+import Intro from './components/Intro';
+import { LogoMark, LogoWordmark } from './components/Logo';
+import { AlertCircle } from 'lucide-react';
+
+const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 export default function App() {
+  // playing -> revealing (intro splits open) -> done (page mounts and runs its own entrance)
+  const [introState, setIntroState] = useState(() => (prefersReducedMotion() ? 'done' : 'playing'));
   const [currentSearchId, setCurrentSearchId] = useState(null);
   const [searchData, setSearchData] = useState(null);
   const [videos, setVideos] = useState([]);
@@ -119,7 +126,13 @@ export default function App() {
       );
     } catch (err) {
       setIsLoading(false);
-      setErrorMsg(err.message || 'Failed to initiate search');
+      // fetch() rejects with a TypeError when the backend can't be reached at all
+      const unreachable = err instanceof TypeError;
+      setErrorMsg(
+        unreachable
+          ? "Can't reach the VidLens server. Make sure the backend is running (npm run dev in /backend) and try again."
+          : err.message || 'Failed to initiate search'
+      );
     }
   };
 
@@ -185,112 +198,115 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  const handleGoHome = () => {
+    if (isLoading) return;
+    if (unsubscribeRef.current) unsubscribeRef.current();
+    setCurrentSearchId(null);
+    setSearchData(null);
+    setVideos([]);
+    setProgressSteps([]);
+    setErrorMsg(null);
+    setActiveTab('all');
+  };
+
   const displayedVideos = activeTab === 'shortlist' ? shortlist : videos;
 
   return (
-    <div className="app">
-      {/* Header */}
-      <header className="header">
-        <div className="header__brand">
-          <div className="header__logo">
-            <Sparkles size={22} color="white" />
-          </div>
-          <div>
-            <h1 className="header__title">Lumin Discovery</h1>
-            <p className="header__subtitle">
-              Visual AI Product Video Discovery • 20 IG Reels + 20 Meta Ads
-            </p>
-          </div>
-        </div>
-
-        <div className="header__actions">
-          <div
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--text-secondary)',
-              background: 'var(--bg-glass)',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-full)',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <Shield size={13} color="var(--accent-secondary)" />
-            <span>Anti-Duplicate Engine Active</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Search */}
-      <SearchBar onSearch={handleStartSearch} isLoading={isLoading} />
-
-      {/* Error Banner */}
-      {errorMsg && (
-        <div className="error-banner fade-in">
-          <AlertCircle className="error-banner__icon" size={20} />
-          <div className="error-banner__text">
-            <strong>Pipeline Notification: </strong>
-            {errorMsg}
-          </div>
-          <button
-            type="button"
-            className="error-banner__dismiss"
-            onClick={() => setErrorMsg(null)}
-          >
-            ×
-          </button>
-        </div>
+    <>
+      {introState !== 'done' && (
+        <Intro onReveal={() => setIntroState('revealing')} onDone={() => setIntroState('done')} />
       )}
+      {introState === 'done' && (
+        <div className="app">
+          {/* Header */}
+          <header className="header">
+            <div className="header__brand" onClick={handleGoHome} title="Back to start">
+              <div className="header__logo">
+                <LogoMark size={26} style={{ color: '#050505' }} />
+              </div>
+              <div>
+                <LogoWordmark className="header__title" />
+                <p className="header__subtitle">Visual AI product video discovery</p>
+              </div>
+            </div>
+          </header>
 
-      {/* Real-time Progress Tracker */}
-      {progressSteps.length > 0 && (
-        <ProgressTracker
-          steps={progressSteps}
-          currentStep={currentStep}
-          currentDetail={currentDetail}
-          isCompleted={isCompleted}
-          error={errorMsg}
-        />
-      )}
+          {/* Landing hero until a search is opened; compact search bar afterwards */}
+          {!currentSearchId && !isLoading ? (
+            <Hero>
+              <SearchBar onSearch={handleStartSearch} isLoading={isLoading} />
+            </Hero>
+          ) : (
+            <SearchBar onSearch={handleStartSearch} isLoading={isLoading} compact />
+          )}
 
-      {/* Product Information & Brain Attributes */}
-      <ProductPanel search={searchData} />
+          {/* Error Banner */}
+          {errorMsg && (
+            <div className="error-banner fade-in">
+              <AlertCircle className="error-banner__icon" size={20} />
+              <div className="error-banner__text">
+                <strong>Pipeline Notification: </strong>
+                {errorMsg}
+              </div>
+              <button
+                type="button"
+                className="error-banner__dismiss"
+                onClick={() => setErrorMsg(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-      {/* Results Section */}
-      {(videos.length > 0 || isLoading || currentSearchId) && (
-        <>
-          <FilterBar
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            counts={counts}
-            sortBy={sortBy}
-            onSortChange={setSortBy}
-            showPreviouslySeen={showPreviouslySeen}
-            onTogglePreviouslySeen={setShowPreviouslySeen}
-            shortlistCount={shortlist.length}
-            onExportShortlist={displayedVideos.length > 0 ? handleExportCsv : null}
+          {/* Real-time Progress Tracker */}
+          {progressSteps.length > 0 && (
+            <ProgressTracker
+              steps={progressSteps}
+              currentStep={currentStep}
+              currentDetail={currentDetail}
+              isCompleted={isCompleted}
+              error={errorMsg}
+            />
+          )}
+
+          {/* Product Information & Brain Attributes */}
+          <ProductPanel key={searchData?.id} search={searchData} videos={displayedVideos} />
+
+          {/* Results Section */}
+          {(videos.length > 0 || isLoading || currentSearchId) && (
+            <>
+              <FilterBar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                counts={counts}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                showPreviouslySeen={showPreviouslySeen}
+                onTogglePreviouslySeen={setShowPreviouslySeen}
+                shortlistCount={shortlist.length}
+                onExportShortlist={displayedVideos.length > 0 ? handleExportCsv : null}
+              />
+
+              <ResultsGrid
+                videos={displayedVideos}
+                isLoading={isLoading}
+                platform={activeTab}
+                counts={counts}
+                shortlist={shortlist}
+                onToggleShortlist={handleToggleShortlist}
+              />
+            </>
+          )}
+
+          {/* Recent History */}
+          <SearchHistory
+            history={history}
+            onSelectSearch={handleSelectHistory}
+            onDeleteSearch={handleDeleteHistory}
+            activeSearchId={currentSearchId}
           />
-
-          <ResultsGrid
-            videos={displayedVideos}
-            isLoading={isLoading}
-            platform={activeTab}
-            counts={counts}
-            shortlist={shortlist}
-            onToggleShortlist={handleToggleShortlist}
-          />
-        </>
+        </div>
       )}
-
-      {/* Recent History */}
-      <SearchHistory
-        history={history}
-        onSelectSearch={handleSelectHistory}
-        onDeleteSearch={handleDeleteHistory}
-        activeSearchId={currentSearchId}
-      />
-    </div>
+    </>
   );
 }

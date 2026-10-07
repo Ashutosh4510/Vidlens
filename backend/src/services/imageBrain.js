@@ -6,7 +6,44 @@ const NodeCache = require('node-cache');
 // Cache image analysis results for 2 hours
 const analysisCache = new NodeCache({ stdTTL: 7200 });
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// model -> UTC day on which its daily quota ran out
+const exhaustedModels = new Map();
+
+function isDailyQuotaError(error) {
+  if (error.response?.status !== 429) return false;
+  const details = error.response.data?.error?.details || [];
+  return details.some((d) => (d.violations || []).some((v) => /PerDay/i.test(v.quotaId || '')));
+}
+
+/**
+ * POST generateContent, walking the configured model chain. A model whose daily quota is
+ * exhausted (or that no longer exists) is skipped for the rest of the UTC day; any other
+ * error is thrown so the caller can retry or fall back.
+ */
+async function callGemini(body, timeout) {
+  const today = new Date().toISOString().slice(0, 10);
+  let lastError = null;
+
+  for (const model of config.geminiModels) {
+    if (exhaustedModels.get(model) === today) continue;
+
+    try {
+      return await axios.post(`${GEMINI_API_BASE}/${model}:generateContent?key=${config.geminiApiKey}`, body, { timeout });
+    } catch (error) {
+      if (isDailyQuotaError(error) || error.response?.status === 404) {
+        logger.warn('Gemini: model unavailable, switching to next', { model, status: error.response.status });
+        exhaustedModels.set(model, today);
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('No Gemini model available');
+}
 
 /**
  * Analyse a product image using Google Gemini Vision API.
@@ -34,30 +71,23 @@ async function analyzeProductImage(imageUrl, productTitle = '', productDescripti
   try {
     let parts = [{ text: prompt }];
 
-    // If we have an image URL, include it
-    if (imageUrl) {
-      parts = [
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: await fetchImageAsBase64(imageUrl),
-          },
-        },
-        { text: prompt },
-      ];
+    // If we have an image URL and it downloads, include it
+    const image = imageUrl ? await fetchImage(imageUrl) : null;
+    if (image) {
+      parts = [{ inlineData: image }, { text: prompt }];
     }
 
-    const response = await axios.post(
-      `${GEMINI_API_URL}?key=${config.geminiApiKey}`,
+    const response = await callGemini(
       {
         contents: [{ parts }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
           responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel: 'low' },
         },
       },
-      { timeout: 30000 }
+      30000
     );
 
     const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -77,102 +107,144 @@ async function analyzeProductImage(imageUrl, productTitle = '', productDescripti
   }
 }
 
+const AI_BATCH_SIZE = 24;
+const AI_CONCURRENCY = 2;
+
 /**
- * Score a video against the product analysis.
- * Compares video thumbnail/caption against product attributes.
+ * Score videos against the product analysis.
+ *
+ * Primary: Gemini judges each video's thumbnail + caption against the product in batches
+ * (one multimodal call per AI_BATCH_SIZE videos). This handles multilingual captions and
+ * catches irrelevant creatives that merely mention a keyword.
+ * Fallback (no key, or a batch fails): caption attribute match + query overlap heuristic.
+ *
+ * Returns scoring fields in the same order as `videos`.
  */
-async function scoreVideo(video, productAnalysis) {
-  try {
-    const scores = [];
-    const reasons = [];
+async function scoreVideos(videos, productAnalysis) {
+  const results = new Array(videos.length);
+  const aiEnabled = config.geminiApiKey && config.geminiApiKey !== 'your_gemini_api_key_here';
 
-    // 1. Caption/text relevance scoring
-    const captionScore = scoreCaptionRelevance(video.caption, productAnalysis);
-    scores.push(captionScore.score * 0.4); // 40% weight
-    if (captionScore.reason) reasons.push(captionScore.reason);
-
-    // 2. Keyword match scoring
-    const keywordScore = scoreKeywordMatch(video.caption, productAnalysis);
-    scores.push(keywordScore.score * 0.3); // 30% weight
-    if (keywordScore.reason) reasons.push(keywordScore.reason);
-
-    // 3. Visual similarity (thumbnail vs product image)
-    let visualScore = { score: 50, reason: 'Visual comparison baseline' };
-    if (video.thumbnailUrl && productAnalysis.imageUrl) {
-      visualScore = await scoreVisualSimilarity(video.thumbnailUrl, productAnalysis);
-      reasons.push(visualScore.reason);
+  if (aiEnabled) {
+    const productImage = productAnalysis.imageUrl ? await fetchImage(productAnalysis.imageUrl) : null;
+    const batches = [];
+    for (let i = 0; i < videos.length; i += AI_BATCH_SIZE) {
+      batches.push({ start: i, items: videos.slice(i, i + AI_BATCH_SIZE) });
     }
-    scores.push(visualScore.score * 0.3); // 30% weight
 
-    const totalScore = Math.round(scores.reduce((a, b) => a + b, 0));
-    const matchReason = reasons.filter(Boolean).join('; ');
-
-    return {
-      matchScore: Math.min(100, Math.max(0, totalScore)),
-      matchReason,
-      isBelowThreshold: totalScore < config.matchThreshold,
-    };
-  } catch (error) {
-    logger.error('Scoring failed', { error: error.message });
-    return {
-      matchScore: 30,
-      matchReason: 'Scoring error - baseline score applied',
-      isBelowThreshold: true,
-    };
+    for (let i = 0; i < batches.length; i += AI_CONCURRENCY) {
+      await Promise.all(batches.slice(i, i + AI_CONCURRENCY).map(async ({ start, items }) => {
+        const scored = await scoreBatchWithAI(items, productAnalysis, productImage);
+        scored.forEach((r, j) => { if (r) results[start + j] = r; });
+      }));
+    }
   }
+
+  let fallbackCount = 0;
+  for (let i = 0; i < videos.length; i++) {
+    if (!results[i]) {
+      results[i] = scoreVideoHeuristic(videos[i], productAnalysis);
+      fallbackCount++;
+    }
+  }
+
+  logger.info('Scoring complete', { videos: videos.length, aiScored: videos.length - fallbackCount, heuristic: fallbackCount });
+  return results.map(({ score, reason }) => ({
+    matchScore: score,
+    matchReason: reason,
+    isBelowThreshold: score < config.matchThreshold,
+  }));
 }
 
 /**
- * Score video thumbnail against product using Gemini Vision comparison
+ * One Gemini call for a batch of videos. Returns an array aligned with `videos`;
+ * entries are null where the model gave no usable score.
  */
-async function scoreVisualSimilarity(thumbnailUrl, productAnalysis) {
+async function scoreBatchWithAI(videos, productAnalysis, productImage, attempt = 1) {
+  const thumbnails = await Promise.all(videos.map((v) => (v.thumbnailUrl ? fetchImage(v.thumbnailUrl) : null)));
+  const attrs = productAnalysis.attributes || {};
+
+  const parts = [{
+    text: `You are ranking short-form videos for how well they showcase a specific product.
+
+PRODUCT
+- Type: ${attrs.productType || 'unspecified'}
+- Brand: ${attrs.brand || 'unspecified'}
+- Colors: ${(attrs.colors || []).join(', ') || 'unspecified'}
+- Patterns/prints: ${(attrs.patterns || []).join(', ') || 'unspecified'}
+- Material: ${attrs.material || 'unspecified'}
+- Shape/fit: ${attrs.shape || 'unspecified'}
+- Key features: ${(attrs.keyFeatures || []).join(', ') || 'unspecified'}
+${productImage ? '- The first image below is the reference product photo.' : ''}
+
+For each video you get its caption and, when available, its thumbnail. Captions may be in any language.
+Score 0-100:
+- 80-100: clearly features this exact product or a near-identical one (type, color, style, brand all fit)
+- 50-79: features the same kind of product, with some differences (color, style, brand)
+- 20-49: loosely related (product only in passing, accessory, adjacent category)
+- 0-19: unrelated (e.g. ads for novels, services, other product categories)
+
+Respond with a JSON array only: [{"index": <video index>, "score": <0-100>, "reason": "<max 15 words, cite what you saw>"}]`,
+  }];
+
+  if (productImage) parts.push({ inlineData: productImage });
+
+  videos.forEach((video, i) => {
+    const caption = (video.caption || '').replace(/\s+/g, ' ').slice(0, 500) || '(no caption)';
+    parts.push({ text: `VIDEO ${i} [${video.platform}] by ${video.author || 'unknown'}\nCaption: ${caption}${thumbnails[i] ? '' : '\n(no thumbnail)'}` });
+    if (thumbnails[i]) parts.push({ inlineData: thumbnails[i] });
+  });
+
   try {
-    const thumbnailBase64 = await fetchImageAsBase64(thumbnailUrl);
-    if (!thumbnailBase64) {
-      return { score: 40, reason: 'Thumbnail unavailable for visual comparison' };
-    }
-
-    const parts = [
-      {
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: thumbnailBase64,
-        },
-      },
-      {
-        text: `You are comparing a video thumbnail to a product. The product is: "${productAnalysis.attributes?.productType || 'unknown'}" with these attributes:
-- Colors: ${productAnalysis.attributes?.colors?.join(', ') || 'unknown'}
-- Key features: ${productAnalysis.attributes?.keyFeatures?.join(', ') || 'unknown'}
-- Brand/Logo: ${productAnalysis.attributes?.brand || 'unknown'}
-
-Rate how likely this thumbnail shows this EXACT product (not just similar category) on a scale of 0-100.
-Respond in JSON: {"score": <number>, "reason": "<one line explanation>"}`,
-      },
-    ];
-
-    const response = await axios.post(
-      `${GEMINI_API_URL}?key=${config.geminiApiKey}`,
+    const response = await callGemini(
       {
         contents: [{ parts }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 256,
+          maxOutputTokens: 4096,
           responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel: 'low' },
         },
       },
-      { timeout: 15000 }
+      90000
     );
 
-    const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
-    const result = JSON.parse(text);
-    return { score: result.score || 40, reason: result.reason || 'Visual comparison done' };
+    const text = (response.data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    const parsed = JSON.parse(text);
+    const out = new Array(videos.length).fill(null);
+
+    for (const row of Array.isArray(parsed) ? parsed : []) {
+      const idx = Number(row.index);
+      const score = Number(row.score);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= videos.length || !Number.isFinite(score)) continue;
+      out[idx] = {
+        score: Math.round(Math.min(100, Math.max(0, score))),
+        reason: `AI: ${String(row.reason || 'scored by Gemini').trim()}`,
+      };
+    }
+    return out;
   } catch (error) {
-    logger.debug('Visual scoring fallback', { error: error.message });
-    return { score: 45, reason: 'Visual comparison unavailable' };
+    const status = error.response?.status;
+    if ((status === 429 || status === 503) && attempt < 3) {
+      const waitMs = 8000 * attempt;
+      logger.warn('AI scoring: rate limited, retrying', { status, waitMs });
+      await new Promise((r) => setTimeout(r, waitMs));
+      return scoreBatchWithAI(videos, productAnalysis, productImage, attempt + 1);
+    }
+    logger.warn('AI scoring: batch failed, using heuristic', { status, error: error.message });
+    return new Array(videos.length).fill(null);
   }
 }
 
-// ─── Helper Functions ────────────────────────────────
+/**
+ * Text-only fallback: caption attribute match (60%) + search-query overlap (40%).
+ */
+function scoreVideoHeuristic(video, productAnalysis) {
+  const caption = scoreCaptionRelevance(video.caption, productAnalysis);
+  const keyword = scoreKeywordMatch(video.caption, productAnalysis);
+  const score = Math.round(caption.score * 0.6 + keyword.score * 0.4);
+  const reason = ['Keyword match', caption.reason, keyword.reason].filter(Boolean).join('; ');
+  return { score: Math.min(100, Math.max(0, score)), reason };
+}
 
 function buildAnalysisPrompt(title, description) {
   return `Analyze this product image and extract structured visual attributes. If no image is provided, analyze based on the product information.
@@ -196,21 +268,27 @@ Return a JSON object with these exact fields:
 }`;
 }
 
+// Gemini answers "unknown" / "N/A" when it can't identify a value; treat those as empty.
+const PLACEHOLDER_VALUE = /^(unknown|n\/?a|none|null|generic|unbranded|not visible|not identifiable)$/i;
+const cleanValue = (v) => (typeof v === 'string' && !PLACEHOLDER_VALUE.test(v.trim()) ? v.trim() : '');
+const cleanList = (list) => (Array.isArray(list) ? list.map(cleanValue).filter(Boolean) : []);
+const withoutPlaceholders = (list) => cleanList(list).filter((v) => !/unknown/i.test(v));
+
 function normalizeAnalysis(analysis, productTitle) {
   return {
     attributes: {
-      productType: analysis.productType || productTitle,
-      colors: analysis.colors || [],
-      patterns: analysis.patterns || [],
-      brand: analysis.brand || '',
+      productType: cleanValue(analysis.productType) || productTitle,
+      colors: cleanList(analysis.colors),
+      patterns: cleanList(analysis.patterns),
+      brand: cleanValue(analysis.brand),
       textOnProduct: analysis.textOnProduct || [],
       material: analysis.material || '',
       shape: analysis.shape || '',
       keyFeatures: analysis.keyFeatures || [],
     },
-    searchQueries: analysis.searchQueries || [productTitle],
-    hashtags: analysis.hashtags || [],
-    metaAdKeywords: analysis.metaAdKeywords || [productTitle],
+    searchQueries: withoutPlaceholders(analysis.searchQueries).length ? withoutPlaceholders(analysis.searchQueries) : [productTitle],
+    hashtags: withoutPlaceholders(analysis.hashtags),
+    metaAdKeywords: withoutPlaceholders(analysis.metaAdKeywords).length ? withoutPlaceholders(analysis.metaAdKeywords) : [productTitle],
   };
 }
 
@@ -231,12 +309,12 @@ function generateFallbackAnalysis(title, description) {
   return {
     attributes: {
       productType: title.split(/\s+/).slice(0, 3).join(' '),
-      colors: foundColors.length > 0 ? foundColors : ['black', 'neutral'],
-      patterns: foundPatterns.length > 0 ? foundPatterns : ['contemporary'],
-      brand: foundBrand ? foundBrand.charAt(0).toUpperCase() + foundBrand.slice(1) : 'Original Brand',
+      colors: foundColors,
+      patterns: foundPatterns,
+      brand: foundBrand ? foundBrand.charAt(0).toUpperCase() + foundBrand.slice(1) : '',
       textOnProduct: words.slice(0, 3),
-      material: foundMaterials[0] || 'premium blend',
-      shape: 'standard form factor',
+      material: foundMaterials[0] || '',
+      shape: '',
       keyFeatures: words.slice(0, 5),
     },
     searchQueries: [
@@ -246,7 +324,7 @@ function generateFallbackAnalysis(title, description) {
       `best ${title}`,
       `${title} haul`,
     ],
-    hashtags: words.map((w) => `#${w.replace(/[^a-z0-9]/gi, '')}`).filter(Boolean).concat(['#productreview', '#viral', '#discovery']),
+    hashtags: words.map((w) => `#${w.replace(/[^a-z0-9]/gi, '')}`).filter((h) => h.length > 1),
     metaAdKeywords: [title, ...words.slice(0, 4)],
   };
 }
@@ -326,20 +404,23 @@ function scoreKeywordMatch(caption, analysis) {
   };
 }
 
-async function fetchImageAsBase64(imageUrl) {
+async function fetchImage(imageUrl) {
   try {
     const response = await axios.get(imageUrl, {
       responseType: 'arraybuffer',
       timeout: 10000,
+      maxContentLength: 5 * 1024 * 1024,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
     });
-    return Buffer.from(response.data).toString('base64');
+    const mimeType = String(response.headers['content-type'] || '').split(';')[0];
+    if (!mimeType.startsWith('image/')) return null;
+    return { mimeType, data: Buffer.from(response.data).toString('base64') };
   } catch (error) {
     logger.debug('Image fetch failed', { url: imageUrl, error: error.message });
     return null;
   }
 }
 
-module.exports = { analyzeProductImage, scoreVideo, scoreVisualSimilarity };
+module.exports = { analyzeProductImage, scoreVideos };

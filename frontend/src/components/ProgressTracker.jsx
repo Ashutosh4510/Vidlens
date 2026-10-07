@@ -66,9 +66,11 @@ function formatStepName(step) {
       return 'Product Resolver';
     case 'analyzing':
       return 'Image Brain AI';
-    case 'collecting_instagram':
+    case 'collecting':
+      return 'Video Collection';
+    case 'collected_instagram':
       return 'Instagram Reels';
-    case 'collecting_meta':
+    case 'collected_meta':
       return 'Meta Ad Library';
     case 'deduplicating':
       return 'De-duplication';
