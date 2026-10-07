@@ -1,6 +1,7 @@
 const { ApifyClient } = require('apify-client');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { brandedProduct } = require('../utils/queryText');
 
 let client = null;
 if (config.apifyToken && config.apifyToken !== 'your_apify_api_token_here') {
@@ -111,7 +112,7 @@ function buildMetaQueries(analysis) {
   const attrs = analysis.attributes || {};
 
   if (attrs.brand && attrs.productType) {
-    queries.push(`${attrs.brand} ${attrs.productType}`);
+    queries.push(brandedProduct(attrs.brand, attrs.productType));
   }
 
   if (analysis.metaAdKeywords?.length) {

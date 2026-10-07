@@ -32,9 +32,16 @@ async function callGemini(body, timeout) {
     try {
       return await axios.post(`${GEMINI_API_BASE}/${model}:generateContent?key=${config.geminiApiKey}`, body, { timeout });
     } catch (error) {
-      if (isDailyQuotaError(error) || error.response?.status === 404) {
-        logger.warn('Gemini: model unavailable, switching to next', { model, status: error.response.status });
+      const status = error.response?.status;
+      if (isDailyQuotaError(error) || status === 404) {
+        logger.warn('Gemini: model unavailable, switching to next', { model, status });
         exhaustedModels.set(model, today);
+        lastError = error;
+        continue;
+      }
+      // Overloaded or too slow right now: try the next model, but don't rule this one out for the day
+      if (error.code === 'ECONNABORTED' || status === 500 || status === 503) {
+        logger.warn('Gemini: model busy or timed out, trying next', { model, status, error: error.message });
         lastError = error;
         continue;
       }
