@@ -97,7 +97,8 @@ async function analyzeProductImage(imageUrl, productTitle = '', productDescripti
           thinkingConfig: { thinkingLevel: 'low' },
         },
       },
-      30000
+      // Photo analysis on the free tier can take 25s+; leave headroom before falling back
+      60000
     );
 
     const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -302,7 +303,20 @@ function normalizeAnalysis(analysis, productTitle) {
   };
 }
 
-function generateFallbackAnalysis(title, description) {
+function generateFallbackAnalysis(title = '', description = '') {
+  // Without a title there is nothing to build queries from (e.g. a photo-only search whose
+  // vision call failed); return an empty analysis so the pipeline can stop instead of
+  // searching generic terms like "review" or "unboxing".
+  if (!title.trim()) {
+    return {
+      attributes: { productType: '', colors: [], patterns: [], brand: '', textOnProduct: [], material: '', shape: '', keyFeatures: [] },
+      searchQueries: [],
+      hashtags: [],
+      metaAdKeywords: [],
+      isFallback: true,
+    };
+  }
+
   const combined = `${title} ${description}`.toLowerCase();
   const words = title.split(/\s+/).filter((w) => w.length > 2);
 
@@ -336,6 +350,7 @@ function generateFallbackAnalysis(title, description) {
     ],
     hashtags: words.map((w) => `#${w.replace(/[^a-z0-9]/gi, '')}`).filter((h) => h.length > 1),
     metaAdKeywords: [title, ...words.slice(0, 4)],
+    isFallback: true,
   };
 }
 

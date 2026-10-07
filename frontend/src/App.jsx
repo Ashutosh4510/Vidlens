@@ -112,6 +112,8 @@ export default function App() {
           } else if (event.type === 'complete') {
             setIsCompleted(true);
             setIsLoading(false);
+            // A failed pipeline still ends with "complete", carrying the reason
+            if (event.error) setErrorMsg(event.error);
             fetchResults(searchId);
             loadHistory();
           } else if (event.type === 'error') {

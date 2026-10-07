@@ -7,6 +7,9 @@ const { collectMetaAds } = require('./metaAdCollector');
 const { collectTikTokVideos } = require('./tiktokCollector');
 const { partitionVideos, getDeficit } = require('./deduplicator');
 const db = require('../db/queries');
+const { brandedProduct } = require('../utils/queryText');
+
+const titleCase = (text) => text.replace(/\w/g, (c) => c.toUpperCase());
 
 // In-memory progress tracking per search
 const progressMap = new Map();
@@ -107,11 +110,19 @@ async function runSearchPipeline(searchId, input, { image } = {}) {
       product.description
     );
 
+    // A photo-only search needs the vision model to know what to look for
+    if (image && !product.title && analysis.isFallback) {
+      throw new Error(
+        "Couldn't recognise the product in the uploaded photo (the vision AI didn't respond in time). " +
+        'Add a product name with the photo, or try again in a minute.'
+      );
+    }
+
     db.updateSearch(searchId, {
       productAttributes: analysis.attributes,
       // Photo-only searches are titled by what the AI recognised
       ...(!product.title && analysis.attributes?.productType
-        ? { productTitle: analysis.attributes.productType.replace(/^\w/, (c) => c.toUpperCase()) }
+        ? { productTitle: titleCase(brandedProduct(analysis.attributes.brand, analysis.attributes.productType)) }
         : {}),
     });
 
