@@ -87,6 +87,7 @@ export default function ProductPanel({ search, videos = [] }) {
           <Brain size={13} />
           AI Image Brain · Scan complete
           {search.input_type === 'url' && <span className="scan__source">from product URL</span>}
+          {search.input_type === 'image' && <span className="scan__source">from uploaded photo</span>}
         </div>
 
         <h2 className="scan__title">{title}</h2>

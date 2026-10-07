@@ -1,6 +1,8 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { parseImageDataUrl, describeImage } = require('../utils/imageUpload');
 const NodeCache = require('node-cache');
 
 // Cache image analysis results for 2 hours
@@ -57,7 +59,8 @@ async function callGemini(body, timeout) {
  * Extracts visual attributes to power search queries and scoring.
  */
 async function analyzeProductImage(imageUrl, productTitle = '', productDescription = '') {
-  const cacheKey = `analysis:${imageUrl || productTitle}`;
+  // Hash the image reference so uploaded photos (long data URLs) make compact cache keys
+  const cacheKey = `analysis:${crypto.createHash('sha1').update(imageUrl || productTitle || '').digest('hex')}:${productTitle}`;
   const cached = analysisCache.get(cacheKey);
   if (cached) {
     logger.info('Image brain: cache hit', { key: cacheKey });
@@ -71,7 +74,7 @@ async function analyzeProductImage(imageUrl, productTitle = '', productDescripti
     return fallback;
   }
 
-  logger.info('Image brain: analyzing with Gemini Vision', { imageUrl, productTitle });
+  logger.info('Image brain: analyzing with Gemini Vision', { image: describeImage(imageUrl), productTitle });
 
   const prompt = buildAnalysisPrompt(productTitle, productDescription);
 
@@ -412,6 +415,9 @@ function scoreKeywordMatch(caption, analysis) {
 }
 
 async function fetchImage(imageUrl) {
+  if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
+    return parseImageDataUrl(imageUrl);
+  }
   try {
     const response = await axios.get(imageUrl, {
       responseType: 'arraybuffer',

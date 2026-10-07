@@ -8,6 +8,8 @@
 ## 📌 Executive Overview
 
 VidLens is an intelligent video discovery pipeline that accepts a **product keyword** or **live e-commerce URL** (Shopify, Amazon, DTC brand site) and discovers at least **40 relevant short-form videos**:
+
+A **product photo upload** is supported as a third input (JPEG/PNG/WebP, downscaled to 800px in the browser). With a photo alone, the Image Brain identifies the product and titles the search; a photo plus text uses the text as the title.
 - **20 Instagram Reels**
 - **20 Meta Ad Library Video Ads**
 - *(Optional bonus: TikTok Videos behind toggle)*

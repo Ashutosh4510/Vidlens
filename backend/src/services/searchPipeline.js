@@ -83,12 +83,14 @@ function notifyComplete(searchId, result) {
  * 5. Score each video against product
  * 6. Store and return results
  */
-async function runSearchPipeline(searchId, input) {
+async function runSearchPipeline(searchId, input, { image } = {}) {
   try {
-    emitProgress(searchId, 'resolving', 'Resolving product information...');
+    emitProgress(searchId, 'resolving', image ? 'Reading uploaded product photo...' : 'Resolving product information...');
 
-    // Step 1: Resolve product
-    const product = await resolveProduct(input);
+    // Step 1: Resolve product (an uploaded photo is used as-is; any text is its title)
+    const product = image
+      ? { inputType: 'image', title: input, description: '', imageUrl: image, source: 'upload' }
+      : await resolveProduct(input);
     
     db.updateSearch(searchId, {
       productTitle: product.title,
@@ -107,6 +109,10 @@ async function runSearchPipeline(searchId, input) {
 
     db.updateSearch(searchId, {
       productAttributes: analysis.attributes,
+      // Photo-only searches are titled by what the AI recognised
+      ...(!product.title && analysis.attributes?.productType
+        ? { productTitle: analysis.attributes.productType.replace(/^\w/, (c) => c.toUpperCase()) }
+        : {}),
     });
 
     // Add imageUrl to analysis for scoring

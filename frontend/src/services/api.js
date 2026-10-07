@@ -1,11 +1,12 @@
 // Dev: Vite on :5173 talks to the backend on :3001. Production: the backend serves the UI, so same origin.
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
 
-export async function startSearch(query) {
+/** Start a search from a product name/URL and/or an uploaded photo (data URL). */
+export async function startSearch(query, image) {
   const response = await fetch(`${API_BASE}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, ...(image ? { image } : {}) }),
   });
 
   if (!response.ok) {

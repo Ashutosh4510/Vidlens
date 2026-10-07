@@ -197,8 +197,8 @@ export default function Hero({ children }) {
     <section className="hero">
       <GlitchHeadline />
       <p className="hero__subtitle hero__reveal">
-        Type a product or paste its link. AI finds matching Instagram Reels and
-        Meta video ads, and scores every one.
+        Type a product, paste its link or upload a photo. AI finds matching Instagram
+        Reels and Meta video ads, and scores every one.
       </p>
 
       <div className="hero__search hero__reveal">{children}</div>

@@ -1,38 +1,46 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const { parseImageDataUrl } = require('../utils/imageUpload');
 const db = require('../db/queries');
 const { runSearchPipeline, addSSEListener, removeSSEListener, getProgress } = require('../services/searchPipeline');
 
 /**
  * POST /api/search
  * Start a new product video search.
- * Body: { query: string } — product name/keyword or product URL
+ * Body: { query?: string, image?: string } — product name/keyword or product URL, and/or an
+ * uploaded product photo as a data URL (JPEG/PNG/WebP, max 3 MB). At least one is required.
  */
 router.post('/', async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, image } = req.body;
+    const trimmedQuery = typeof query === 'string' ? query.trim() : '';
 
-    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    if (image !== undefined && image !== null && !parseImageDataUrl(image)) {
       return res.status(400).json({
-        error: 'Missing or invalid query. Provide a product name, keyword, or URL.',
+        error: 'Invalid image. Upload a JPEG, PNG or WebP photo up to 3 MB.',
       });
     }
 
-    const trimmedQuery = query.trim();
+    if (!trimmedQuery && !image) {
+      return res.status(400).json({
+        error: 'Missing input. Provide a product name, a product URL, or upload a product photo.',
+      });
+    }
+
     const isUrl = /^https?:\/\//i.test(trimmedQuery);
-    const inputType = isUrl ? 'url' : 'keyword';
+    const inputType = image ? 'image' : isUrl ? 'url' : 'keyword';
 
     logger.info('New search request', { query: trimmedQuery, inputType });
 
     // Create search record
     const searchId = db.createSearch({
-      query: trimmedQuery,
+      query: trimmedQuery || 'Image search',
       inputType,
     });
 
     // Run pipeline in background (non-blocking)
-    runSearchPipeline(searchId, trimmedQuery).catch((err) => {
+    runSearchPipeline(searchId, trimmedQuery, { image }).catch((err) => {
       logger.error('Pipeline failed in background', { searchId, error: err.message });
     });
 

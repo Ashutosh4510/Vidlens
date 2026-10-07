@@ -84,7 +84,7 @@ export default function App() {
     }
   };
 
-  const handleStartSearch = async (query) => {
+  const handleStartSearch = async (query, image) => {
     setIsLoading(true);
     setErrorMsg(null);
     setIsCompleted(false);
@@ -98,7 +98,7 @@ export default function App() {
     }
 
     try {
-      const { searchId } = await startSearch(query);
+      const { searchId } = await startSearch(query, image);
       setCurrentSearchId(searchId);
 
       // Listen for SSE real-time pipeline events
